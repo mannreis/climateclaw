@@ -61,7 +61,8 @@ echo "== head: ${head_name} (${head_sha:0:7})"
 BENCH_PROJECT_ROOT="${head_root}" "${HERE}/run.sh" \
   -c "${CONCURRENCY}" -d "${DURATION}" --json "${TMP}/head.json"
 
-uv run python "${HERE}/compare.py" "${TMP}/base.json" "${TMP}/head.json" \
+uv run python "${HERE}/compare.py" \
+  --component backend "${TMP}/base.json" "${TMP}/head.json" \
   --base-name "${BASE}" --base-sha "${base_sha}" \
   --head-name "${head_name}" --head-sha "${head_sha}" \
   --repo-url "${repo_url}" > "${OUT}"

@@ -1,7 +1,8 @@
-"""Render a base-vs-head comparison of two ``loadgen.py --json`` results.
+"""Render a base-vs-head benchmark report from ``loadgen.py --json`` results.
 
-Writes Markdown (table + Mermaid charts) to stdout, for a PR comment or
-the GitHub job summary.
+One section per component (``--component NAME BASE_JSON HEAD_JSON``, repeatable)
+with a table and Mermaid charts; badges for all components on top. Writes
+Markdown to stdout, for a PR comment or the GitHub job summary.
 """
 
 from __future__ import annotations
@@ -89,8 +90,13 @@ def _badge(label: str, ratio: float) -> str:
     return f"![{label}: {value}](https://img.shields.io/badge/{esc(label)}-{esc(value)}-{color})"
 
 
+def _valid(b: dict, h: dict) -> bool:
+    """Both sides completed requests at this level, so they can be compared."""
+    return b["ok"] > 0 and h["ok"] > 0
+
+
 def badges(component: str, base: dict[int, dict], head: dict[int, dict]) -> str:
-    users = sorted(set(base) & set(head))
+    users = [u for u in sorted(set(base) & set(head)) if _valid(base[u], head[u])]
     throughput = _geomean_ratio([(head[u]["rps"], base[u]["rps"]) for u in users])
     # Latency improvement = base / head, so > 1 is better here too.
     latency = _geomean_ratio([(base[u]["p95_ms"], head[u]["p95_ms"]) for u in users])
@@ -112,45 +118,43 @@ def _label(name: str, sha: str, repo_url: str) -> str:
     return commit if sha.startswith(name) else f"`{name}` @ {commit}"
 
 
-def render(
+def _row(users: int, b: dict, h: dict) -> str:
+    b_err, h_err = sum(b["errors"].values()), sum(h["errors"].values())
+    err_icon = "🔴 " if h_err > b_err else "🟢 " if h_err < b_err else ""
+    cells = [
+        str(users),
+        f"{_fmt(b['rps'])} → **{_fmt(h['rps'])}** "
+        f"{_change(b['rps'], h['rps'], True)}".strip(),
+        f"{_fmt(b['p95_ms'])} → **{_fmt(h['p95_ms'])}** "
+        f"{_change(b['p95_ms'], h['p95_ms'], False)}".strip(),
+        f"{err_icon}{b_err} → **{h_err}**",
+    ]
+    if not _valid(b, h):
+        cells = [f"~~{c}~~" for c in cells]
+    return "| " + " | ".join(cells) + " |"
+
+
+def render_component(
+    component: str,
     base: dict[int, dict],
     head: dict[int, dict],
     base_label: str,
     head_label: str,
-    component: str = "backend",
-):
+) -> str:
     users = sorted(set(base) & set(head))
     out = [
-        MARKER,
-        f"## {component.capitalize()} benchmark",
+        f"### {component.capitalize()}",
         "",
-        badges(component, base, head),
-        "",
-        "Improvement ratios, head vs base, averaged (geometric mean) over all user "
-        "counts; above ×1 is better for both.",
-        "",
-        "| | ref |",
-        "|---|---|",
-        f"| **base** | {base_label} |",
-        f"| **head** | {head_label} |",
-        "",
-        "Both run back to back on the same runner. Dependencies are instant "
-        "stand-ins, so this measures the backend's own cost. Changes under 5% are "
-        "within noise.",
-        "",
-        "| users | req/s base | req/s head | change | p95 base (ms) "
-        "| p95 head (ms) | change | errors (base/head) |",
-        "|---:|---:|---:|:--|---:|---:|:--|:--:|",
+        "| Concurrency | req/s | p95 latency (ms) | errors |",
+        "|---:|:--|:--|:--|",
+        *(_row(u, base[u], head[u]) for u in users),
     ]
-    for u in users:
-        b, h = base[u], head[u]
-        out.append(
-            f"| {u} | {_fmt(b['rps'])} | {_fmt(h['rps'])} "
-            f"| {_change(b['rps'], h['rps'], True)} "
-            f"| {_fmt(b['p95_ms'])} | {_fmt(h['p95_ms'])} "
-            f"| {_change(b['p95_ms'], h['p95_ms'], False)} "
-            f"| {sum(b['errors'].values())}/{sum(h['errors'].values())} |"
-        )
+    if not all(_valid(base[u], head[u]) for u in users):
+        out += [
+            "",
+            "~~Struck-through~~ rows: one side completed no requests in time "
+            "(overloaded), so they can't be compared and are left out of the badges.",
+        ]
     out += [
         "",
         f"{BASE_SQUARE} **base** {base_label} &nbsp;&nbsp; "
@@ -179,13 +183,48 @@ def render(
         "",
         "</td></tr></table>",
     ]
+    return "\n".join(out)
+
+
+def render(
+    components: list[tuple[str, dict[int, dict], dict[int, dict]]],
+    base_label: str,
+    head_label: str,
+) -> str:
+    """Report with a shared header and one section per component."""
+    out = [
+        MARKER,
+        "## Benchmark",
+        "",
+        *(badges(name, base, head) for name, base, head in components),
+        "",
+        "Improvement ratios, head vs base, averaged (geometric mean) over all user "
+        "counts; above ×1 is better for both.",
+        "",
+        "| | ref |",
+        "|---|---|",
+        f"| **base** | {base_label} |",
+        f"| **head** | {head_label} |",
+        "",
+        "Both run back to back on the same runner. Dependencies are instant "
+        "stand-ins, so each component's own cost is measured. Changes under 5% "
+        "are within noise.",
+    ]
+    for name, base, head in components:
+        out += ["", render_component(name, base, head, base_label, head_label)]
     return "\n".join(out) + "\n"
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("base_json")
-    p.add_argument("head_json")
+    p.add_argument(
+        "--component",
+        nargs=3,
+        action="append",
+        required=True,
+        metavar=("NAME", "BASE_JSON", "HEAD_JSON"),
+        help="A benchmarked component; repeat for several (one section each).",
+    )
     p.add_argument("--base-name", default="base", help="Branch, tag or commit.")
     p.add_argument("--base-sha", default="", help="Commit the base name resolved to.")
     p.add_argument("--head-name", default="head", help="Branch, tag or commit.")
@@ -193,15 +232,16 @@ def main() -> None:
     p.add_argument(
         "--repo-url", default="", help="e.g. https://github.com/org/repo, for links."
     )
-    p.add_argument("--component", default="backend", help="Name used in badges.")
     args = p.parse_args()
+    components = [
+        (name, _load(base_json), _load(head_json))
+        for name, base_json, head_json in args.component
+    ]
     print(
         render(
-            _load(args.base_json),
-            _load(args.head_json),
+            components,
             _label(args.base_name, args.base_sha, args.repo_url),
             _label(args.head_name, args.head_sha, args.repo_url),
-            args.component,
         ),
         end="",
     )

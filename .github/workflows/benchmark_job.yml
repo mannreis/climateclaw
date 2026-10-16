@@ -101,7 +101,8 @@ jobs:
 
       - name: Compare
         run: |
-          uv run python benchmarks/backend/compare.py base.json head.json \
+          uv run python benchmarks/backend/compare.py \
+            --component backend base.json head.json \
             --base-name "${BASE_REF}" --base-sha "$(git -C .bench-base rev-parse HEAD)" \
             --head-name "${HEAD_NAME}" --head-sha "$(git -C .bench-head rev-parse HEAD)" \
             --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" > comment.md
