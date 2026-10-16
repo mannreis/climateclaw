@@ -19,8 +19,11 @@ on:
         description: "Comma-separated numbers of concurrent users"
         default: "1,4,16,64"
       duration:
-        description: "Seconds measured per concurrency level"
-        default: "20"
+        description: "Seconds measured per concurrency level and round"
+        default: "10"
+      rounds:
+        description: "Alternating base/head rounds, merged by median"
+        default: "3"
       workers:
         description: "Backend uvicorn workers"
         default: "1"
@@ -50,7 +53,8 @@ jobs:
       HEAD_NAME: ${{ github.head_ref || inputs.head || github.ref_name }}
       HEAD_REF: ${{ github.event.pull_request.head.sha || inputs.head || github.sha }}
       CONCURRENCY: ${{ inputs.concurrency || '1,4,16,64' }}
-      DURATION: ${{ inputs.duration || '20' }}
+      DURATION: ${{ inputs.duration || '10' }}
+      ROUNDS: ${{ inputs.rounds || '3' }}
       BENCH_WORKERS: ${{ inputs.workers || '1' }}
 
     steps:
@@ -85,31 +89,19 @@ jobs:
           uv sync --project .bench-base
           uv sync --project .bench-head
 
-      - name: Benchmark base
-        env:
-          BENCH_PROJECT_ROOT: .bench-base
+      # Base and head alternate in ROUNDS rounds; each side is the median.
+      - name: Benchmark base and head
         run: |
-          benchmarks/backend/run.sh -c "${CONCURRENCY}" -d "${DURATION}" \
-            --json base.json
-
-      - name: Benchmark head
-        env:
-          BENCH_PROJECT_ROOT: .bench-head
-        run: |
-          benchmarks/backend/run.sh -c "${CONCURRENCY}" -d "${DURATION}" \
-            --json head.json
-
-      - name: Compare
-        run: |
-          uv run python benchmarks/backend/compare.py \
-            --component backend base.json head.json \
-            --base-name "${BASE_REF}" --base-sha "$(git -C .bench-base rev-parse HEAD)" \
-            --head-name "${HEAD_NAME}" --head-sha "$(git -C .bench-head rev-parse HEAD)" \
-            --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" > comment.md
+          uv run python benchmarks/main.py \
+            --base-root .bench-base --base-name "${BASE_REF}" \
+            --head-root .bench-head --head-name "${HEAD_NAME}" \
+            -c "${CONCURRENCY}" -d "${DURATION}" --rounds "${ROUNDS}" \
+            --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --results-dir bench-results -o comment.md
           {
             cat comment.md
             echo
-            echo "Backend workers: ${BENCH_WORKERS}, ${DURATION}s per level, runner: $(nproc) CPUs."
+            echo "Backend workers: ${BENCH_WORKERS}, ${ROUNDS} rounds of ${DURATION}s per level, runner: $(nproc) CPUs."
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Token of PRs from forks is read-only; those only get the job summary.
@@ -151,7 +143,6 @@ jobs:
         with:
           name: backend-benchmark
           path: |
-            base.json
-            head.json
+            bench-results/
             comment.md
           if-no-files-found: ignore

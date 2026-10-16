@@ -1,24 +1,17 @@
-"""Render a base-vs-head benchmark report from ``loadgen.py --json`` results.
+"""Markdown base-vs-head benchmark report (PR comment, job summary).
 
-One section per component (``--component NAME BASE_JSON HEAD_JSON``, repeatable)
-with a table and Mermaid charts; badges for all components on top. Writes
-Markdown to stdout, for a PR comment or the GitHub job summary.
+One section per component with a table and Mermaid charts; badges for all
+components on top. Input per side is a list of per-level results as written
+by a component's load generator (see main.py).
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 import math
 from urllib.parse import quote
 
 # Hidden marker so the workflow can find and update its own PR comment.
 MARKER = "<!-- climateclaw-backend-benchmark -->"
-
-
-def _load(path: str) -> dict[int, dict]:
-    with open(path) as f:
-        return {r["concurrency"]: r for r in json.load(f)}
 
 
 def _fmt(x: float) -> str:
@@ -108,7 +101,7 @@ def badges(component: str, base: dict[int, dict], head: dict[int, dict]) -> str:
     )
 
 
-def _label(name: str, sha: str, repo_url: str) -> str:
+def label(name: str, sha: str, repo_url: str) -> str:
     """``name @ sha`` (sha linked when the repo URL is known)."""
     if not sha:
         return f"`{name}`"
@@ -213,39 +206,3 @@ def render(
     for name, base, head in components:
         out += ["", render_component(name, base, head, base_label, head_label)]
     return "\n".join(out) + "\n"
-
-
-def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument(
-        "--component",
-        nargs=3,
-        action="append",
-        required=True,
-        metavar=("NAME", "BASE_JSON", "HEAD_JSON"),
-        help="A benchmarked component; repeat for several (one section each).",
-    )
-    p.add_argument("--base-name", default="base", help="Branch, tag or commit.")
-    p.add_argument("--base-sha", default="", help="Commit the base name resolved to.")
-    p.add_argument("--head-name", default="head", help="Branch, tag or commit.")
-    p.add_argument("--head-sha", default="", help="Commit the head name resolved to.")
-    p.add_argument(
-        "--repo-url", default="", help="e.g. https://github.com/org/repo, for links."
-    )
-    args = p.parse_args()
-    components = [
-        (name, _load(base_json), _load(head_json))
-        for name, base_json, head_json in args.component
-    ]
-    print(
-        render(
-            components,
-            _label(args.base_name, args.base_sha, args.repo_url),
-            _label(args.head_name, args.head_sha, args.repo_url),
-        ),
-        end="",
-    )
-
-
-if __name__ == "__main__":
-    main()
