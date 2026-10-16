@@ -29,6 +29,7 @@ import subprocess
 import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import report
@@ -183,6 +184,7 @@ def main() -> None:
         results_dir = Path(args.results_dir) if args.results_dir else tmp / "results"
         results_dir.mkdir(parents=True, exist_ok=True)
 
+        started = datetime.now(UTC)
         sections = []
         for component in components:
             files: dict[str, list[Path]] = {"base": [], "head": []}
@@ -208,6 +210,7 @@ def main() -> None:
                 sections,
                 report.label(base.name, base.sha, repo_url),
                 report.label(head.name, head.sha, repo_url),
+                started,
             )
         )
     print(f"Report written to {args.out}")
