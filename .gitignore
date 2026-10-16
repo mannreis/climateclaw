@@ -26,3 +26,6 @@ build.log
 
 *scaled.yml
 haproxy.cfg
+
+# Local benchmark report (make benchmark)
+benchmark-report.md

@@ -36,6 +36,16 @@ wait_for() {  # url name
   exit 1
 }
 
+# A server already on these ports (e.g. another benchmark) would answer the
+# readiness checks and the load, silently corrupting the results.
+for port in "${BACKEND_PORT}" "${UPSTREAM_PORT}"; do
+  if curl -s -o /dev/null "http://127.0.0.1:${port}/"; then
+    echo "Port ${port} is already in use (another benchmark running?)." \
+      "Stop it or set BENCH_BACKEND_PORT / BENCH_UPSTREAM_PORT." >&2
+    exit 1
+  fi
+done
+
 cd "${ROOT}"
 uv run python "${HERE}/fake_upstream.py" --port "${UPSTREAM_PORT}" \
   >"${WORKDIR}/upstream.log" 2>&1 &
