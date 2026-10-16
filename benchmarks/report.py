@@ -8,6 +8,7 @@ by a component's load generator (see main.py).
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 # Hidden marker so the workflow can find and update its own PR comment.
@@ -193,8 +194,13 @@ def render(
     components: list[tuple[str, dict[int, dict], dict[int, dict]]],
     base_label: str,
     head_label: str,
+    started: datetime | None = None,
 ) -> str:
-    """Report with a shared header and one section per component."""
+    """Report with a shared header and one section per component.
+
+    ``started`` is when the benchmark began (default: now).
+    """
+    started = (started or datetime.now(UTC)).astimezone(UTC)
     out = [
         MARKER,
         "## Benchmark",
@@ -208,6 +214,7 @@ def render(
         "|---|---|",
         f"| **base** | {base_label} |",
         f"| **head** | {head_label} |",
+        f"| **run** | {started:%Y-%m-%d %H:%M} UTC |",
         "",
         "Both run back to back on the same runner. Dependencies are instant "
         "stand-ins, so each component's own cost is measured. Changes under 5% "
