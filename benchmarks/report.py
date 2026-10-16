@@ -111,16 +111,26 @@ def label(name: str, sha: str, repo_url: str) -> str:
     return commit if sha.startswith(name) else f"`{name}` @ {commit}"
 
 
+def _requests(r: dict) -> tuple[int, int]:
+    """(finished requests, errors, error rate); requests = completed + failed."""
+    errors = sum(r["errors"].values())
+    total = r["ok"] + errors
+    return total, errors
+
+
 def _row(users: int, b: dict, h: dict) -> str:
-    b_err, h_err = sum(b["errors"].values()), sum(h["errors"].values())
-    err_icon = "🔴 " if h_err > b_err else "🟢 " if h_err < b_err else ""
+    b_req, b_err = _requests(b)
+    h_req, h_err = _requests(h)
+    # Compare erro rates, not counts: a faster side also sends more requests.
+    h_err_icon = "⚠️" if h_err > 0 else ""
+    b_err_icon = "⚠️" if b_err > 0 else ""
     cells = [
         str(users),
         f"{_fmt(b['rps'])} → **{_fmt(h['rps'])}** "
         f"{_change(b['rps'], h['rps'], True)}".strip(),
         f"{_fmt(b['p95_ms'])} → **{_fmt(h['p95_ms'])}** "
         f"{_change(b['p95_ms'], h['p95_ms'], False)}".strip(),
-        f"{err_icon}{b_err} → **{h_err}**",
+        f"{b_err_icon}{b_req} / {b_err} → **{h_req} / {h_err}**{h_err_icon}",
     ]
     if not _valid(b, h):
         cells = [f"~~{c}~~" for c in cells]
@@ -138,7 +148,7 @@ def render_component(
     out = [
         f"### {component.capitalize()}",
         "",
-        "| Concurrency | req/s | p95 latency (ms) | errors |",
+        "| Concurrency | req/s | p95 latency (ms) | requests / errors |",
         "|---:|:--|:--|:--|",
         *(_row(u, base[u], head[u]) for u in users),
     ]
